@@ -1,0 +1,1 @@
+globals = { "DissectorTable", "Proto", "ProtoField", "base" }
