@@ -1,30 +1,7 @@
-local send_header_dissector = require'ess.SendHeaderDissector'
-local run_frames_dissector = require 'ess.RunFramesDissector'
-local reply_dissector = require 'ess.ReplyDissector'
+local smooth_stepper_dissector = require 'ess.SmoothStepperDissector'
+local motion_controller_dissector = require 'ess.MotionControllerDissector'
 
 local ess_udp_proto = Proto("ess-udp", "Ethernet Smooth Stepper")
-
--- declare unit strings
-local send_payload_ids = {
-    ['1F:1F'] = "Run",
-    ['A5:A5'] = "Profile",
-    ['6B:6B'] = "End Profile",
-    ['7C:7C'] = "End Session"
-}
-
-local send_payload_run_ids = {
-    ['8D'] = '8D (141)',
-    ['A3'] = 'A3 (163)',
-    ['89'] = '89 (137)',
-    ['88'] = '88 (136)',
-    ['BD'] = 'BD (189)',
-    ['82'] = '82 (130)',
-    ['AC'] = 'AC (172)',
-    ['00'] = '00 (0)',
-    ['EA'] = 'EA (234)',
-    ['B3'] = 'B3 (179)',
-    ['04'] = '04 (4)',
-}
 
 -- declare fields
 local f_magic_string = ProtoField.string("ess.wakeup", "Magic Wake-up")
@@ -39,16 +16,11 @@ local f_device_ether = ProtoField.ether("ess.device.ether", "Device Ethernet")
 local f_device_ip = ProtoField.ipv4("ess.device.ip", "Device IP")
 local f_packet_count = ProtoField.uint32("ess.packet.count", "Packet Counter")
 
-local f_count = ProtoField.uint32("ess.count", "Count")
+-- local f_count = ProtoField.uint32("ess.count", "Count")
 
 local f_length = ProtoField.uint16("ess.length", "Length")
 local f_complement = ProtoField.int16("ess.complement", "Complement")
 local f_payload = ProtoField.string("ess.payload", "Payload")
-local f_payload_length = ProtoField.uint32("ess.payload.length", "Length")
-local f_send_payload_type = ProtoField.string("ess.send.payload.type", "Send Payload Type", base.ASCII)
-local f_send_payload_run_type = ProtoField.string("ess.send.payload.run.type", "Run Type", base.ASCII)
-local f_send_payload_data = ProtoField.bytes("ess.send.payload.data", "Payload Data", base.COLON)
-local f_send_profile_data = ProtoField.bytes("ess.send.profile.data", "Profile Data", base.COLON)
 
 -- declare generic fields for exploration purposes
 local f_chunk = ProtoField.bytes("ess.chunk", "Chunk", base.COLON)
@@ -80,24 +52,15 @@ local fields = {
     f_float,
     f_length,
     f_complement,
-    f_count,
-    f_payload,
-    f_payload_length,
-    f_send_payload_type,
-    f_send_payload_run_type,
-    f_send_payload_data,
-    f_send_profile_data
+    -- f_count,
+    f_payload
 }
 
-for _, field in ipairs(run_frames_dissector.fields) do
+for _, field in ipairs(motion_controller_dissector.fields) do
     table.insert(fields, field)
 end
 
-for _, field in ipairs(reply_dissector.fields) do
-    table.insert(fields, field)
-end
-
-for _, field in ipairs(send_header_dissector.fields) do
+for _, field in ipairs(smooth_stepper_dissector.fields) do
     table.insert(fields, field)
 end
 
@@ -125,7 +88,7 @@ function ess_udp_proto.dissector(buffer, pinfo, tree)
 
     local function dissect_dst_port_9()
         -- create the ESS/UDP Protocol Tree item
-        local t_ess_udp = tree:add(ess_udp_proto, buffer())
+        local t_ess_udp = tree:add(ess_udp_proto, buffer(), "ESS - Wakeup Response")
         local offset = 0
 
         -- Field - Magic String
@@ -145,7 +108,7 @@ function ess_udp_proto.dissector(buffer, pinfo, tree)
 
     local function dissect_src_port_9()
         -- create the ESS/UDP Protocol Tree Item
-        local t_ess_udp = tree:add(ess_udp_proto, buffer())
+        local t_ess_udp = tree:add(ess_udp_proto, buffer(), "ESS - Wakeup Request")
         local offset = 0
 
         -- Field - Device Name
@@ -184,57 +147,6 @@ function ess_udp_proto.dissector(buffer, pinfo, tree)
         t_ess_udp:add_le(f_packet_count, buffer(offset, 4))
     end
 
-    local function dissect_dst_port_4096()
-        local function send_payload_type(tvb)
-            local key = tvb:bytes():tohex(false, ":")
-            return send_payload_ids[key] or "UNKNOWN"
-        end
-
-        local function send_run_type(tvb)
-            local key = tvb:bytes():tohex(false, ":")
-            return send_payload_run_ids[key] or "UNKNOWN"
-        end
-
-        -- create the ESS/UDP Protocol Tree Item
-        local t_ess_udp = tree:add(ess_udp_proto, buffer())
-        local offset
-
-        -- Header
-        offset = send_header_dissector:call(buffer, pinfo, t_ess_udp)
-
-        -- Payload
-        local send_payload_type_buffer = buffer(offset + 2, 2)
-
-        local payload_type = send_payload_type(send_payload_type_buffer)
-        local t_payload = t_ess_udp:add(f_send_payload_type, buffer(offset), payload_type)
-
-        t_payload:add_le(f_payload_length, buffer(offset, 2))
-        offset = offset + 4
-
-        if payload_type == 'Run' then
-            local run_type_buffer = buffer(offset, 1)
-
-            local run_type = send_run_type(run_type_buffer)
-            t_payload:add(f_send_payload_run_type, run_type_buffer, run_type)
-            offset = offset + 1
-
-            if run_type == '8D (141)' then
-                run_frames_dissector:call(buffer(offset):tvb(), pinfo, t_payload)
-            else
-                t_payload:add(f_send_payload_data, buffer(offset))
-            end
-        elseif payload_type == 'Profile' then
-            t_payload:add(f_send_profile_data, buffer(offset))
-        end
-    end
-
-    local function dissect_src_port_4096()
-        -- create the ESS/UDP Protocol Tree Item
-        local t_ess_udp = tree:add(ess_udp_proto, buffer())
-
-        reply_dissector:call(buffer, pinfo, t_ess_udp)
-    end
-
     -- Set the protocol column
     pinfo.cols.protocol = "ESS/UDP"
 
@@ -243,9 +155,13 @@ function ess_udp_proto.dissector(buffer, pinfo, tree)
     elseif pinfo.src_port == 9 then
         dissect_src_port_9()
     elseif pinfo.dst_port == 4096 then
-        dissect_dst_port_4096()
+        local t_ess_udp = tree:add(ess_udp_proto, buffer(), "ESS - MotionController")
+
+        motion_controller_dissector:call(buffer, pinfo, t_ess_udp)
     elseif pinfo.src_port == 4096 then
-        dissect_src_port_4096()
+        local t_ess_udp = tree:add(ess_udp_proto, buffer(), "ESS - SmoothStepper")
+
+        smooth_stepper_dissector:call(buffer, pinfo, t_ess_udp)
     end
 end
 
