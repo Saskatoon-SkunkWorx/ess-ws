@@ -1,5 +1,5 @@
-local motion_controller_header_dissector =
-    require 'ess.MotionControllerHeaderDissector'
+local motion_controller_header_dissector = require 'ess.MotionControllerHeaderDissector'
+local run_commands_dissector = require 'ess.RunCommandsDissector'
 local run_frames_dissector = require 'ess.RunFramesDissector'
 
 local lib = {}
@@ -7,11 +7,12 @@ local lib = {}
 local motion_controller_payload_ids = {
     ['1F:1F'] = "Run",
     ['A5:A5'] = "Profile",
-    ['6B:6B'] = "End Profile",
+    ['6B:6B'] = "Start Run",
     ['7C:7C'] = "End Session"
 }
 
 local payload_run_ids = {
+    ['AB'] = 'AB (171)',
     ['8D'] = '8D (141)',
     ['A3'] = 'A3 (163)',
     ['89'] = '89 (137)',
@@ -48,6 +49,10 @@ for _, field in ipairs(run_frames_dissector.fields) do
     table.insert(fields, field)
 end
 
+for _, field in ipairs(run_commands_dissector.fields) do
+    table.insert(fields, field)
+end
+
 lib.fields = fields
 
 function lib:call(buffer, pinfo, tree)
@@ -81,15 +86,16 @@ function lib:call(buffer, pinfo, tree)
 
         local run_type = payload_run_type(run_type_buffer)
         t_payload:add(f_payload_run_type, run_type_buffer, run_type)
-        offset = offset + 1
 
-        if run_type == '8D (141)' then
-            run_frames_dissector:call(buffer(offset):tvb(), pinfo, t_payload)
+        if run_type == 'AB (171)' then
+            run_commands_dissector:call(buffer(offset):tvb(), pinfo, t_payload)
+        elseif run_type == '8D (141)' then
+            run_frames_dissector:call(buffer(offset + 1):tvb(), pinfo, t_payload)
         else
-            t_payload:add(f_payload_data, buffer(offset))
+            t_payload:add(f_payload_data, buffer(offset + 1))
         end
     elseif payload_type == 'Profile' then
-        t_payload:add(f_profile_data, buffer(offset))
+        t_payload:add(f_profile_data, buffer(offset + 1))
     end
 end
 

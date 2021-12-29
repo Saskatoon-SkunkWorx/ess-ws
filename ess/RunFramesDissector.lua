@@ -95,7 +95,7 @@ function lib:call(buffer, pinfo, tree)
     local offset = 0
     local frame_max_len = 35
 
-    local t_frames = tree:add(f_run_frames, buffer(offset))
+    local t_frames = tree:add(f_run_frames, buffer(offset), '')
 
     while offset < buffer_length do
         local f_run_frame = lib.frame_fields[frame_index]

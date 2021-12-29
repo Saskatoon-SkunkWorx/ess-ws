@@ -2,8 +2,8 @@ local lib = {}
 
 local message_ids = {
     ['00:00:00:00'] = "Start",
-    ['11:11:11:11'] = "Type 1",
-    ['22:22:22:22'] = "Type 2",
+    ['11:11:11:11'] = "RunStatus 1",
+    ['22:22:22:22'] = "RunStatus 2",
     ['33:33:33:33'] = "End"
 }
 
@@ -22,6 +22,12 @@ local f_profile_bytes_received = ProtoField.uint32("ess.smooth.stepper.profile.b
 local f_message_seq = ProtoField.uint32("ess.smooth.stepper.message.seq", "Message Sequence")
 local f_message_seq_overflow = ProtoField.uint32("ess.smooth.stepper.message.seq.overflow", "Message Sequence Overflow")
 
+local f_profile_checksum = ProtoField.bytes("ess.smooth.stepper.profile.checksum", "Profile Checksum", base.COLON)
+local f_profile_checksum_counter = ProtoField.uint16("ess.smooth.stepper.profile.checksum.counter", "Profile Checksum Counter")
+
+local f_run_seq = ProtoField.uint32("ess.smooth.stepper.run.seq", "Run Sequence")
+local f_run_bytes_received = ProtoField.uint32("ess.smooth.stepper.run.bytes.received", "Run Bytes Received")
+
 lib.fields = {
     f_length,
     f_complement,
@@ -34,7 +40,11 @@ lib.fields = {
     f_profile_seq,
     f_profile_bytes_received,
     f_message_seq,
-    f_message_seq_overflow
+    f_message_seq_overflow,
+    f_profile_checksum,
+    f_profile_checksum_counter,
+    f_run_seq,
+    f_run_bytes_received
 }
 
 function lib:call(buffer, pinfo, tree)
@@ -78,6 +88,15 @@ function lib:call(buffer, pinfo, tree)
     tree:add_le(f_profile_bytes_received, buffer(offset,4))
     offset = offset + 4
 
+    tree:add(f_profile_checksum, buffer(offset,2))
+    tree:add_le(f_profile_checksum_counter, buffer(offset + 2, 2))
+    offset = offset + 4
+
+    tree:add_le(f_run_seq, buffer(offset,4))
+    offset = offset + 4
+
+    tree:add_le(f_run_bytes_received, buffer(offset, 4))
+    offset = offset + 4
 
     return buffer:len()
 end
